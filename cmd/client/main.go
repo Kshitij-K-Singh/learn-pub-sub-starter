@@ -3,9 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/bootdotdev/learn-pub-sub-starter/internal/pubsub"
@@ -40,10 +37,39 @@ func main() {
 	defer channel.Close()
 
 	fmt.Println("Connected to RabbitMQ successfully.")
+	gameState := gamelogic.NewGameState(username)
 
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	<-signals
+commandLoop:
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+
+		switch words[0] {
+		case "spawn":
+			if err := gameState.CommandSpawn(words); err != nil {
+				fmt.Println(err)
+			}
+		case "move":
+			if _, err := gameState.CommandMove(words); err != nil {
+				fmt.Println(err)
+			} else {
+				fmt.Println("Move successful!")
+			}
+		case "status":
+			gameState.CommandStatus()
+		case "help":
+			gamelogic.PrintClientHelp()
+		case "spam":
+			fmt.Println("Spamming not allowed yet!")
+		case "quit":
+			gamelogic.PrintQuit()
+			break commandLoop
+		default:
+			fmt.Printf("Unknown command: %s\n", words[0])
+		}
+	}
 
 	fmt.Println("Shutting down Peril client...")
 }
