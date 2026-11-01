@@ -26,6 +26,18 @@ func main() {
 	}
 	defer channel.Close()
 
+	gameLogsChannel, _, err := pubsub.DeclareAndBind(
+		connection,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.Durable,
+	)
+	if err != nil {
+		log.Fatalf("Failed to declare and bind game logs queue: %v", err)
+	}
+	defer gameLogsChannel.Close()
+
 	fmt.Println("Connected to RabbitMQ successfully.")
 	gamelogic.PrintServerHelp()
 
