@@ -24,20 +24,18 @@ func main() {
 	}
 	defer connection.Close()
 
-	channel, _, err := pubsub.DeclareAndBind(
+	fmt.Println("Connected to RabbitMQ successfully.")
+	gameState := gamelogic.NewGameState(username)
+	if err := pubsub.SubscribeJSON(
 		connection,
 		routing.ExchangePerilDirect,
 		routing.PauseKey+"."+username,
 		routing.PauseKey,
 		pubsub.Transient,
-	)
-	if err != nil {
-		log.Fatalf("Failed to declare and bind client queue: %v", err)
+		handlerPause(gameState),
+	); err != nil {
+		log.Fatalf("Failed to subscribe to pause messages: %v", err)
 	}
-	defer channel.Close()
-
-	fmt.Println("Connected to RabbitMQ successfully.")
-	gameState := gamelogic.NewGameState(username)
 
 commandLoop:
 	for {
@@ -72,4 +70,11 @@ commandLoop:
 	}
 
 	fmt.Println("Shutting down Peril client...")
+}
+
+func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
+	return func(state routing.PlayingState) {
+		defer fmt.Print("> ")
+		gs.HandlePause(state)
+	}
 }

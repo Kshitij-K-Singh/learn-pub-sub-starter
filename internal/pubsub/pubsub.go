@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -54,6 +55,47 @@ func DeclareAndBind(
 	}
 
 	return channel, queue, nil
+}
+
+// SubscribeJSON declares and binds a queue, then decodes and handles messages
+// delivered to it. Messages are acknowledged after handling (or after a decode
+// failure) so malformed messages do not remain in the queue indefinitely.
+func SubscribeJSON[T any](
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	queueType SimpleQueueType,
+	handler func(T),
+) error {
+	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
+	if err != nil {
+		return err
+	}
+
+	deliveries, err := channel.Consume(queue.Name, "", false, false, false, false, nil)
+	if err != nil {
+		channel.Close()
+		return err
+	}
+
+	go func() {
+		defer channel.Close()
+		for delivery := range deliveries {
+			var message T
+			if err := json.Unmarshal(delivery.Body, &message); err != nil {
+				log.Printf("Failed to decode RabbitMQ message: %v", err)
+			} else {
+				handler(message)
+			}
+
+			if err := delivery.Ack(false); err != nil {
+				log.Printf("Failed to acknowledge RabbitMQ message: %v", err)
+			}
+		}
+	}()
+
+	return nil
 }
 
 // PublishJSON marshals val as JSON and publishes it to the given exchange and key.
