@@ -28,6 +28,17 @@ func main() {
 	gameState := gamelogic.NewGameState(username)
 	if err := pubsub.SubscribeJSON(
 		connection,
+		routing.ExchangePerilTopic,
+		routing.ArmyMovesPrefix+"."+username,
+		routing.ArmyMovesPrefix+".*",
+		pubsub.Transient,
+		handlerMove(gameState),
+	); err != nil {
+		log.Fatalf("Failed to subscribe to army moves: %v", err)
+	}
+
+	if err := pubsub.SubscribeJSON(
+		connection,
 		routing.ExchangePerilDirect,
 		routing.PauseKey+"."+username,
 		routing.PauseKey,
@@ -36,6 +47,11 @@ func main() {
 	); err != nil {
 		log.Fatalf("Failed to subscribe to pause messages: %v", err)
 	}
+	publishChannel, err := connection.Channel()
+	if err != nil {
+		log.Fatalf("Failed to open a RabbitMQ channel for publishing: %v", err)
+	}
+	defer publishChannel.Close()
 
 commandLoop:
 	for {
@@ -50,10 +66,20 @@ commandLoop:
 				fmt.Println(err)
 			}
 		case "move":
-			if _, err := gameState.CommandMove(words); err != nil {
+			move, err := gameState.CommandMove(words)
+			if err != nil {
 				fmt.Println(err)
 			} else {
-				fmt.Println("Move successful!")
+				if err := pubsub.PublishJSON(
+					publishChannel,
+					routing.ExchangePerilTopic,
+					routing.ArmyMovesPrefix+"."+username,
+					move,
+				); err != nil {
+					log.Printf("Failed to publish move: %v", err)
+				} else {
+					fmt.Println("Move published successfully!")
+				}
 			}
 		case "status":
 			gameState.CommandStatus()
@@ -76,5 +102,12 @@ func handlerPause(gs *gamelogic.GameState) func(routing.PlayingState) {
 	return func(state routing.PlayingState) {
 		defer fmt.Print("> ")
 		gs.HandlePause(state)
+	}
+}
+
+func handlerMove(gs *gamelogic.GameState) func(gamelogic.ArmyMove) {
+	return func(move gamelogic.ArmyMove) {
+		defer fmt.Print("> ")
+		gs.HandleMove(move)
 	}
 }
