@@ -18,6 +18,15 @@ const (
 	Transient SimpleQueueType = "transient"
 )
 
+// AckType determines how a consumed RabbitMQ message is acknowledged.
+type AckType uint8
+
+const (
+	Ack AckType = iota
+	NackRequeue
+	NackDiscard
+)
+
 // DeclareAndBind declares a queue, binds it to an exchange and routing key,
 // and returns the channel that owns the queue declaration.
 func DeclareAndBind(
@@ -66,7 +75,7 @@ func SubscribeJSON[T any](
 	queueName,
 	key string,
 	queueType SimpleQueueType,
-	handler func(T),
+	handler func(T) AckType,
 ) error {
 	channel, queue, err := DeclareAndBind(conn, exchange, queueName, key, queueType)
 	if err != nil {
@@ -83,14 +92,34 @@ func SubscribeJSON[T any](
 		defer channel.Close()
 		for delivery := range deliveries {
 			var message T
+			ackType := Ack
 			if err := json.Unmarshal(delivery.Body, &message); err != nil {
 				log.Printf("Failed to decode RabbitMQ message: %v", err)
 			} else {
-				handler(message)
+				ackType = handler(message)
 			}
 
-			if err := delivery.Ack(false); err != nil {
-				log.Printf("Failed to acknowledge RabbitMQ message: %v", err)
+			switch ackType {
+			case Ack:
+				log.Printf("Acknowledging RabbitMQ message")
+				if err := delivery.Ack(false); err != nil {
+					log.Printf("Failed to acknowledge RabbitMQ message: %v", err)
+				}
+			case NackRequeue:
+				log.Printf("Rejecting RabbitMQ message and requeueing it")
+				if err := delivery.Nack(false, true); err != nil {
+					log.Printf("Failed to reject and requeue RabbitMQ message: %v", err)
+				}
+			case NackDiscard:
+				log.Printf("Rejecting RabbitMQ message without requeueing it")
+				if err := delivery.Nack(false, false); err != nil {
+					log.Printf("Failed to reject RabbitMQ message: %v", err)
+				}
+			default:
+				log.Printf("Unknown RabbitMQ acknowledgement type %d; discarding message", ackType)
+				if err := delivery.Nack(false, false); err != nil {
+					log.Printf("Failed to reject RabbitMQ message: %v", err)
+				}
 			}
 		}
 	}()
