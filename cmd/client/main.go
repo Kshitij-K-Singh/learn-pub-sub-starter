@@ -133,8 +133,9 @@ func handlerMove(gs *gamelogic.GameState, ch *amqp.Channel) func(gamelogic.ArmyM
 				},
 			); err != nil {
 				log.Printf("Failed to publish war recognition: %v", err)
+				return pubsub.NackRequeue
 			}
-			return pubsub.NackRequeue
+			return pubsub.Ack
 		default:
 			return pubsub.NackDiscard
 		}
